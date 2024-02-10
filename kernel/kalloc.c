@@ -9,8 +9,6 @@
 #include "riscv.h"
 #include "defs.h"
 
-#define STEAL_MAX 16
-
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
@@ -23,20 +21,13 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
-  int amount_free;
 } kmem[NCPU];
-
-struct {
-  struct spinlock lock;
-} mem_steal;
 
 void
 kinit()
 {
-  initlock(&mem_steal.lock, "mem_steal");
   for(int i = 0; i < NCPU; i++) {
     initlock(&kmem[i].lock, "kmem");
-    kmem[i].amount_free = 0;
   }
   freerange(end, (void*)PHYSTOP);
 }
@@ -74,45 +65,27 @@ kfree(void *pa)
   acquire(&kmem[cur_cpu].lock);
   r->next = kmem[cur_cpu].freelist;
   kmem[cur_cpu].freelist = r;
-  kmem[cur_cpu].amount_free++;
   release(&kmem[cur_cpu].lock);
 }
 
-
-//steals pages from steal_cpu to cur_cpu
-//assumes locks for both
-void steal_from(int cur_cpu, int steal_cpu, int amount) {
-  if(amount == 0) return;
-  kmem[cur_cpu].amount_free += amount;
-  kmem[steal_cpu].amount_free -= amount;
-  struct run * top = kmem[steal_cpu].freelist;
-  struct run * bot = top;
-  for(int i = 0; i < amount - 1; i++) {
-    bot = bot->next;
-  }
-  kmem[steal_cpu].freelist = bot->next;
-  bot->next = kmem[cur_cpu].freelist;
-  kmem[cur_cpu].freelist = top;
-}
 
 //steals enough pages to reach STEAL_MAX free pages
 //assumes that a lock for the current kmem is already
 //acquired
-void steal_memory(int cur_cpu) {
-  acquire(&mem_steal.lock);
-  acquire(&kmem[cur_cpu].lock);
-  for(int steal_cpu = 0; steal_cpu < NCPU && kmem[cur_cpu].amount_free < STEAL_MAX; steal_cpu++) {
+struct run *steal_memory(int cur_cpu) {
+  for(int steal_cpu = 0; steal_cpu < NCPU; steal_cpu++) {
     if(steal_cpu == cur_cpu) continue;
+    if(kmem[steal_cpu].freelist == 0) continue;
     acquire(&kmem[steal_cpu].lock);
-    int steal_amount = STEAL_MAX - kmem[cur_cpu].amount_free;
-    if(steal_amount > kmem[steal_cpu].amount_free) {
-      steal_amount = kmem[steal_cpu].amount_free;
+    if(kmem[steal_cpu].freelist) {
+      struct run *res = kmem[steal_cpu].freelist;
+      kmem[steal_cpu].freelist = res->next;
+      release(&kmem[steal_cpu].lock);
+      return res;
     }
-    steal_from(cur_cpu, steal_cpu, steal_amount);
     release(&kmem[steal_cpu].lock);
   }
-  release(&kmem[cur_cpu].lock);
-  release(&mem_steal.lock);
+  return 0;
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -128,15 +101,12 @@ kalloc(void)
   cur_cpu = cpuid();
   pop_off();
 
-  if(kmem[cur_cpu].amount_free < STEAL_MAX) {
-    steal_memory(cur_cpu);
-  }
   acquire(&kmem[cur_cpu].lock);
   r = kmem[cur_cpu].freelist;
-  if(r) {
+  if(r)
     kmem[cur_cpu].freelist = r->next;
-    kmem[cur_cpu].amount_free--;
-  }
+  else
+    r = steal_memory(cur_cpu);
   release(&kmem[cur_cpu].lock);
 
   if(r)
