@@ -80,6 +80,9 @@ int             pipewrite(struct pipe*, uint64, int);
 void            printf(char*, ...);
 void            panic(char*) __attribute__((noreturn));
 void            printfinit(void);
+void			vmprint_lvl0(pagetable_t);
+void			vmprint_lvl1(pagetable_t);
+void			vmprint(pagetable_t);
 
 // proc.c
 int             cpuid(void);

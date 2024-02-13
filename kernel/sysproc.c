@@ -71,11 +71,49 @@ sys_sleep(void)
 
 
 #ifdef LAB_PGTBL
+#define MAX_PAGES_SCANNED 1024
 int
 sys_pgaccess(void)
 {
-  // lab pgtbl: your code here.
-  return 0;
+	uint64 base;
+	int len;
+	uint64 mask;
+	argaddr(0, &base);
+	argint(1, &len);
+	argaddr(2, &mask);
+	pagetable_t my_pagetable = myproc()->pagetable;
+	if(len > MAX_PAGES_SCANNED) {
+		return -1;
+	}
+	int bit_mask[MAX_PAGES_SCANNED / (sizeof(int) * 32)];
+	memset(bit_mask, 0, sizeof(bit_mask));
+	for(int idx = 0; idx < len; idx++) {
+		uint64 cur_addr = base + idx * PGSIZE;
+		pagetable_t cur_page = my_pagetable;
+		for(int level = 2; level > 0; level--) {
+			pte_t *pte = &cur_page[PX(level, cur_addr)];
+			if(*pte & PTE_V) {
+				cur_page = (pagetable_t)PTE2PA(*pte);
+			} else {
+				cur_page = 0;
+				break;
+			}
+		}
+		if(cur_page != 0) {
+			pte_t *pte = &cur_page[PX(0, cur_addr)];
+			if((*pte & PTE_V) == 0) {
+				continue;
+			}
+			if((*pte & PTE_A) == 0) {
+				continue;
+			}
+			*pte &= ~PTE_A;
+			bit_mask[idx / (sizeof(int) * 8)] |= (1L << (idx % (sizeof(int) * 8)));
+		}
+	}
+	//copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
+	copyout(my_pagetable, mask, (char *)bit_mask, (len - 1) / 8 + 1);
+	return 0;
 }
 #endif
 
@@ -100,3 +138,4 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
