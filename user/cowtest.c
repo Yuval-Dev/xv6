@@ -23,6 +23,7 @@ simpletest()
     exit(-1);
   }
 
+
   for(char *q = p; q < p + sz; q += 4096){
     *(int*)q = getpid();
   }
@@ -33,15 +34,18 @@ simpletest()
     exit(-1);
   }
 
-  if(pid == 0)
+  if(pid == 0) {
     exit(0);
+  }
 
   wait(0);
+
 
   if(sbrk(-sz) == (char*)0xffffffffffffffffL){
     printf("sbrk(-%d) failed\n", sz);
     exit(-1);
   }
+
 
   printf("ok\n");
 }

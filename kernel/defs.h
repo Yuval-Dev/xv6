@@ -60,9 +60,11 @@ void            ramdiskintr(void);
 void            ramdiskrw(struct buf*);
 
 // kalloc.c
+int				copy_on_write(pte_t*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+uint64 			get_freemem(void);
 
 // log.c
 void            initlog(int, struct superblock*);
