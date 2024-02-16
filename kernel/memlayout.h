@@ -62,3 +62,6 @@
 //   TRAPFRAME (p->trapframe, used by the trampoline)
 //   TRAMPOLINE (the same page as in the kernel)
 #define TRAPFRAME (TRAMPOLINE - PGSIZE)
+
+#define VMA_MAX (TRAPFRAME - PGSIZE * 1024)
+#define VMA_MIN (VMA_MAX - PGSIZE * 1024 * 64)

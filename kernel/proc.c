@@ -3,6 +3,7 @@
 #include "memlayout.h"
 #include "riscv.h"
 #include "spinlock.h"
+#include "mmap.h"
 #include "proc.h"
 #include "defs.h"
 
@@ -55,6 +56,7 @@ procinit(void)
       initlock(&p->lock, "proc");
       p->state = UNUSED;
       p->kstack = KSTACK((int) (p - proc));
+      memset(p->vma, 0, sizeof(p->vma));
   }
 }
 
@@ -125,6 +127,12 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
+  if(vma_init(p) < 0) {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
@@ -155,6 +163,7 @@ found:
 static void
 freeproc(struct proc *p)
 {
+  vma_free(p);
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
@@ -288,6 +297,11 @@ fork(void)
     return -1;
   }
 
+  if(vma_copy(p, np) < 0) {
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
   // Copy user memory from parent to child.
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
@@ -347,6 +361,8 @@ void
 exit(int status)
 {
   struct proc *p = myproc();
+
+  vma_free(p);
 
   if(p == initproc)
     panic("init exiting");

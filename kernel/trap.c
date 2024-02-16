@@ -3,6 +3,7 @@
 #include "memlayout.h"
 #include "riscv.h"
 #include "spinlock.h"
+#include "mmap.h"
 #include "proc.h"
 #include "defs.h"
 
@@ -67,6 +68,20 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if(r_scause() == 13) {
+    uint64 fault_addr = r_stval();
+    if(vma_access(p, fault_addr, 1) < 0) {
+      printf("usertrap(): read page fault pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      setkilled(p);
+    }
+  } else if(r_scause() == 15) {
+    uint64 fault_addr = r_stval();
+    if(vma_access(p, fault_addr, 2) < 0) {
+      printf("usertrap(): write page fault pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      setkilled(p);
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
