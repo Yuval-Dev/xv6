@@ -106,7 +106,7 @@ endif
 
 ifdef KCSAN
 CFLAGS += -DKCSAN
-KCSANFLAG = -fsanitize=thread -fno-inline
+KCSANFLAG = -fsanitize=thread
 endif
 
 # Disable PIE when possible (for Ubuntu 16.10 toolchain)
@@ -139,7 +139,7 @@ $U/initcode: $U/initcode.S
 tags: $(OBJS) _init
 	etags *.S *.c
 
-ULIB = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o
+ULIB = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o $U/yuval_lib.o
 
 ifeq ($(LAB),$(filter $(LAB), lock))
 ULIB += $U/statistics.o
@@ -172,6 +172,11 @@ mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
 .PRECIOUS: %.o
 
 UPROGS=\
+	$U/_xargs\
+	$U/_find\
+	$U/_primes\
+	$U/_pingpong\
+	$U/_sleep\
 	$U/_cat\
 	$U/_echo\
 	$U/_forktest\
@@ -272,7 +277,6 @@ clean:
 	mkfs/mkfs .gdbinit \
         $U/usys.S \
 	$(UPROGS) \
-	*.zip \
 	ph barrier
 
 # try to generate a unique GDB port
@@ -339,10 +343,21 @@ grade:
 	./grade-lab-$(LAB) $(GRADEFLAGS)
 
 ##
-## FOR submissions
+## FOR web handin
 ##
 
-submit-check:
+
+WEBSUB := https://6828.scripts.mit.edu/2022/handin.py
+
+handin: tarball-pref myapi.key
+	@SUF=$(LAB); \
+	curl -f -F file=@lab-$$SUF-handin.tar.gz -F key=\<myapi.key $(WEBSUB)/upload \
+	    > /dev/null || { \
+		echo ; \
+		echo Submit seems to have failed.; \
+		echo Please go to $(WEBSUB)/ and upload the tarball manually.; }
+
+handin-check:
 	@if ! test -d .git; then \
 		echo No .git directory, is this a git repository?; \
 		false; \
@@ -364,7 +379,37 @@ submit-check:
 		test "$$r" = y; \
 	fi
 
-zipball: clean submit-check
-	git archive --verbose --format zip --output lab.zip HEAD
+UPSTREAM := $(shell git remote -v | grep -m 1 "xv6-labs-2022" | awk '{split($$0,a," "); print a[1]}')
 
-.PHONY: zipball clean grade submit-check
+tarball: handin-check
+	git archive --format=tar HEAD | gzip > lab-$(LAB)-handin.tar.gz
+
+tarball-pref: handin-check
+	@SUF=$(LAB); \
+	git archive --format=tar HEAD > lab-$$SUF-handin.tar; \
+	git diff $(UPSTREAM)/$(LAB) > /tmp/lab-$$SUF-diff.patch; \
+	tar -rf lab-$$SUF-handin.tar /tmp/lab-$$SUF-diff.patch; \
+	gzip -c lab-$$SUF-handin.tar > lab-$$SUF-handin.tar.gz; \
+	rm lab-$$SUF-handin.tar; \
+	rm /tmp/lab-$$SUF-diff.patch; \
+
+myapi.key:
+	@echo Get an API key for yourself by visiting $(WEBSUB)/
+	@read -p "Please enter your API key: " k; \
+	if test `echo "$$k" |tr -d '\n' |wc -c` = 32 ; then \
+		TF=`mktemp -t tmp.XXXXXX`; \
+		if test "x$$TF" != "x" ; then \
+			echo "$$k" |tr -d '\n' > $$TF; \
+			mv -f $$TF $@; \
+		else \
+			echo mktemp failed; \
+			false; \
+		fi; \
+	else \
+		echo Bad API key: $$k; \
+		echo An API key should be 32 characters long.; \
+		false; \
+	fi;
+
+
+.PHONY: handin tarball tarball-pref clean grade handin-check
